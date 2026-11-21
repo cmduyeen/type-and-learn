@@ -838,6 +838,7 @@
             <span id="category">Memes &amp; Internet</span>
           </div>
           <div class="top-badges">
+            <button class="mini-btn" id="chill-toggle" type="button" aria-pressed="false" title="Only type the last word of each line">🎯 Chill: Last word</button>
             <span class="mascot-pill" id="mascot">😸 Warm-up paws</span>
             <span class="round-count" id="round">01 / 06</span>
           </div>
@@ -989,6 +990,7 @@
         quickChips: Array.from(document.querySelectorAll(".quick-chip")),
         removeAudio: document.getElementById("remove-audio"),
         category: document.getElementById("category"),
+        chillToggle: document.getElementById("chill-toggle"),
         mascot: document.getElementById("mascot"),
         round: document.getElementById("round"),
         gameStage: document.getElementById("game-stage"),
@@ -1050,9 +1052,10 @@
       let bonkShake = 0;
       let hasLrcSync = false;
       let isPreviewMode = false;
+      let chillMode = false;
       let waitForMe = false;
       let waitingPaused = false;
-      const SPEEDS = [1, 0.75, 0.85];
+      const SPEEDS = [1, 0.85, 0.75, 0.65];
       let speedIdx = 0;
 
       // --- Web Audio Retro SFX (zero external files) ---
@@ -1257,11 +1260,26 @@
         els.gameToggleLabel.textContent = active ? "End game" : "Play game";
       }
 
+      function getTargetParts(text) {
+        if (!chillMode) return { prefix: "", target: text };
+        const m = text.match(/^(.*\s+)([^\s]+)$/);
+        if (!m) return { prefix: "", target: text };
+        return { prefix: m[1], target: m[2] };
+      }
+
       function renderLine() {
         const current = lines[lineIndex];
+        const { prefix, target } = getTargetParts(current.text);
         const entered = Array.from(els.typing.value);
-        const expected = Array.from(current.text);
-        els.quote.replaceChildren(...expected.map((character, index) => {
+        const expected = Array.from(target);
+        const nodes = [];
+        if (prefix) {
+          const preSpan = document.createElement("span");
+          preSpan.className = "pending";
+          preSpan.textContent = prefix;
+          nodes.push(preSpan);
+        }
+        expected.forEach((character, index) => {
           const span = document.createElement("span");
           span.textContent = character;
           if (index < entered.length) {
@@ -1271,8 +1289,9 @@
           } else {
             span.className = "pending";
           }
-          return span;
-        }));
+          nodes.push(span);
+        });
+        els.quote.replaceChildren(...nodes);
         els.category.textContent = current.category;
         els.round.textContent = `${String(lineIndex + 1).padStart(2, "0")} / ${String(lines.length).padStart(2, "0")}`;
 
@@ -1392,7 +1411,7 @@
 
       function updateStats() {
         const input = Array.from(els.typing.value);
-        const target = Array.from(lines[lineIndex].text);
+        const target = Array.from(getTargetParts(lines[lineIndex].text).target);
         const correct = input.filter((ch, i) => ch === target[i]).length;
         els.accuracy.textContent = String(input.length ? Math.round((correct / input.length) * 100) : 100);
         const elapsedMinutes = Math.max((Date.now() - startTime) / 60000, 1 / 60000);
@@ -1424,6 +1443,13 @@
             lineIndex = (lineIndex + 1) % lines.length;
             resetRound("▶ Resumed!");
             resumeActivePlayer();
+          } else if (chillMode) {
+            setTimeout(() => {
+              if (!inGameMode && completed) {
+                lineIndex = (lineIndex + 1) % lines.length;
+                resetRound("Nice! Next word ready.");
+              }
+            }, 160);
           } else {
             els.notice.textContent = activeDeck === "lyrics"
               ? "Line cleared! Press Enter for the next lyric."
@@ -1518,6 +1544,12 @@
         els.soundToggle.textContent = soundOn ? "🔊 SFX: On" : "🔇 SFX: Off";
       });
 
+      els.chillToggle.addEventListener("click", () => {
+        chillMode = !chillMode;
+        els.chillToggle.setAttribute("aria-pressed", String(chillMode));
+        resetRound(chillMode ? "Chill mode ON: just type the last word of each line!" : "Full-line mode ON.");
+      });
+
       els.typing.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
           event.preventDefault();
@@ -1536,7 +1568,7 @@
         if (inGameMode && gameOver) return;
 
         const typed = Array.from(els.typing.value);
-        const target = Array.from(lines[lineIndex].text);
+        const target = Array.from(getTargetParts(lines[lineIndex].text).target);
 
         // Combo & keystroke SFX
         if (typed.length > prevTypedLen) {

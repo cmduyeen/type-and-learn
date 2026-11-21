@@ -880,6 +880,7 @@
             <div><div class="stat-label">Speed</div><div class="stat-value"><span id="wpm">0</span> <span class="stat-unit">wpm</span></div></div>
             <div><div class="stat-label">Accuracy</div><div class="stat-value"><span id="accuracy">100</span><span class="stat-unit">%</span></div></div>
             <div><div class="stat-label">Combo</div><div class="stat-value"><span id="combo">0</span><span class="stat-unit">x</span></div></div>
+            <div><div class="stat-label">Best</div><div class="stat-value"><span id="best-wpm">0</span> <span class="stat-unit">wpm</span></div></div>
             <div><div class="stat-label">Time</div><div class="stat-value"><span id="time">0</span> <span class="stat-unit">sec</span></div></div>
           </div>
           <div class="buttons">
@@ -1010,6 +1011,7 @@
         wpm: document.getElementById("wpm"),
         accuracy: document.getElementById("accuracy"),
         combo: document.getElementById("combo"),
+        bestWpm: document.getElementById("best-wpm"),
         time: document.getElementById("time"),
         gameToggle: document.getElementById("game-toggle"),
         gameToggleIcon: document.getElementById("game-toggle-icon"),
@@ -1409,6 +1411,24 @@
         return mistakes;
       }
 
+      function recordSessionStats(roundWpm, roundAcc) {
+        try {
+          const saved = JSON.parse(localStorage.getItem("tt_stats_v1") || "{}");
+          const history = Array.isArray(saved.history) ? saved.history : [];
+          const bestWpm = Math.max(Number(saved.bestWpm) || 0, roundWpm);
+          history.unshift({ wpm: roundWpm, acc: roundAcc, deck: activeDeck, ts: Date.now() });
+          localStorage.setItem("tt_stats_v1", JSON.stringify({ bestWpm, history: history.slice(0, 30) }));
+          els.bestWpm.textContent = String(bestWpm);
+        } catch {
+          // Ignore storage restrictions
+        }
+      }
+
+      try {
+        const initStats = JSON.parse(localStorage.getItem("tt_stats_v1") || "{}");
+        if (initStats.bestWpm) els.bestWpm.textContent = String(initStats.bestWpm);
+      } catch {}
+
       function updateStats() {
         const input = Array.from(els.typing.value);
         const target = Array.from(getTargetParts(lines[lineIndex].text).target);
@@ -1427,6 +1447,7 @@
           completed = true;
           clearInterval(statsTimer);
           statsTimer = null;
+          recordSessionStats(Number(els.wpm.textContent) || 0, Number(els.accuracy.textContent) || 100);
           sfxLevelUp();
           updateMascot("done");
           if (inGameMode) {

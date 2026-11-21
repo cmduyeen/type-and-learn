@@ -739,6 +739,30 @@
       flex-shrink: 0;
     }
 
+    .quick-songs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 0 0 12px;
+    }
+
+    .quick-chip {
+      padding: 4px 9px;
+      border: 1.5px solid var(--line);
+      border-radius: 999px;
+      background: var(--card);
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--timber-dark);
+      transition: background .15s, border-color .15s;
+    }
+
+    .quick-chip:hover {
+      background: var(--gold-soft);
+      border-color: var(--timber);
+    }
+
     .footer {
       margin-top: 22px;
       color: var(--muted);
@@ -802,6 +826,7 @@
         <div class="player-controls">
           <button class="mini-btn" id="speed-toggle" type="button" title="Playback speed">1x</button>
           <button class="mini-btn" id="wait-toggle" type="button" aria-pressed="false" title="Pause music until you finish the line">⏸ Wait-for-me</button>
+          <a class="mini-btn" id="yt-find-link" href="https://www.youtube.com/" target="_blank" rel="noopener" hidden style="text-decoration:none">📺 Full on YT ↗</a>
           <button class="mini-btn" id="remove-audio" type="button">✕ Remove</button>
         </div>
       </div>
@@ -867,10 +892,16 @@
 
       <section class="custom-panel" id="custom-panel" aria-label="Lyrics and local music studio" hidden>
         <div class="field">
-          <label class="field-label" for="lrclib-query">🔍 Search synced lyrics (1-click via LRCLIB)</label>
+          <label class="field-label" for="lrclib-query">🔍 Search song (auto-loads lyrics + 30s music preview)</label>
           <div class="yt-row">
             <input class="yt-input" id="lrclib-query" type="search" placeholder="Song title or artist (e.g. Counting Stars)...">
             <button class="btn primary" id="lrclib-search" type="button">Search</button>
+          </div>
+          <div class="quick-songs" aria-label="Quick song picks">
+            <button class="quick-chip" type="button" data-song="Counting Stars OneRepublic">✨ Counting Stars</button>
+            <button class="quick-chip" type="button" data-song="Shape of You Ed Sheeran">✨ Shape of You</button>
+            <button class="quick-chip" type="button" data-song="Die With A Smile">✨ Die With A Smile</button>
+            <button class="quick-chip" type="button" data-song="Lemon Tree Fools Garden">✨ Lemon Tree</button>
           </div>
           <div class="lrc-results" id="lrc-results" hidden></div>
 
@@ -951,9 +982,11 @@
         loadYt: document.getElementById("load-yt"),
         speedToggle: document.getElementById("speed-toggle"),
         waitToggle: document.getElementById("wait-toggle"),
+        ytFindLink: document.getElementById("yt-find-link"),
         lrclibQuery: document.getElementById("lrclib-query"),
         lrclibSearch: document.getElementById("lrclib-search"),
         lrcResults: document.getElementById("lrc-results"),
+        quickChips: Array.from(document.querySelectorAll(".quick-chip")),
         removeAudio: document.getElementById("remove-audio"),
         category: document.getElementById("category"),
         mascot: document.getElementById("mascot"),
@@ -1016,6 +1049,7 @@
       let particles = [];
       let bonkShake = 0;
       let hasLrcSync = false;
+      let isPreviewMode = false;
       let waitForMe = false;
       let waitingPaused = false;
       const SPEEDS = [1, 0.75, 0.85];
@@ -1670,7 +1704,7 @@
       }
 
       function syncLyricsToTime(nowSec) {
-        if (!hasLrcSync || inGameMode) return;
+        if (!hasLrcSync || isPreviewMode || inGameMode) return;
         let targetIdx = 0;
         for (let i = 0; i < lines.length; i += 1) {
           if (typeof lines[i].timeSec === "number" && lines[i].timeSec <= nowSec + 0.25) {
@@ -1734,6 +1768,7 @@
               els.customText.value = track.syncedLyrics || track.plainLyrics || "";
               els.lrcResults.hidden = true;
               els.useCustom.click();
+              loadSongPreview(track.trackName, track.artistName);
             });
             return btn;
           }));
@@ -1744,6 +1779,46 @@
           els.lrclibSearch.textContent = "Search";
         }
       }
+
+      async function loadSongPreview(trackName, artistName) {
+        const query = `${trackName} ${artistName}`.trim();
+        els.ytFindLink.href = `https://www.youtube.com/results?search_query=${encodeURIComponent(query + " lyrics")}`;
+        els.ytFindLink.hidden = false;
+
+        try {
+          const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&limit=1`);
+          if (!res.ok) return;
+          const data = await res.json();
+          const hit = data.results && data.results[0];
+          if (!hit || !hit.previewUrl) {
+            els.notice.textContent = "Lyrics loaded! Paste a YouTube link or local MP3 to hear the full song.";
+            return;
+          }
+          clearInterval(ytSyncTimer);
+          if (ytPlayer && typeof ytPlayer.stopVideo === "function") ytPlayer.stopVideo();
+          els.ytBox.hidden = true;
+          els.audio.hidden = false;
+          isPreviewMode = true;
+          if (audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
+          audioObjectUrl = null;
+          els.audio.src = hit.previewUrl;
+          els.playerBadge.textContent = "♫ 30s PREVIEW";
+          els.songName.textContent = `${trackName} — ${artistName}`;
+          els.miniPlayer.hidden = false;
+          applyPlaybackSpeed();
+          els.audio.play().catch(() => {});
+          els.notice.textContent = "Playing 30s preview! Type along, or click 'Full on YT ↗' for the full track.";
+        } catch {
+          // Keep lyrics loaded even if preview fetch fails
+        }
+      }
+
+      els.quickChips.forEach((chip) => {
+        chip.addEventListener("click", () => {
+          els.lrclibQuery.value = chip.dataset.song || "";
+          searchLrclib();
+        });
+      });
 
       els.lrclibSearch.addEventListener("click", searchLrclib);
       els.lrclibQuery.addEventListener("keydown", (e) => {
@@ -1763,6 +1838,8 @@
       }
 
       function mountYouTubePlayer(videoId) {
+        isPreviewMode = false;
+        els.ytFindLink.hidden = true;
         els.audio.pause();
         els.audio.hidden = true;
         els.ytBox.hidden = false;
@@ -1824,6 +1901,8 @@
       els.audioFile.addEventListener("change", (event) => {
         const file = event.currentTarget.files && event.currentTarget.files[0];
         if (!file) return;
+        isPreviewMode = false;
+        els.ytFindLink.hidden = true;
         clearInterval(ytSyncTimer);
         if (ytPlayer && typeof ytPlayer.stopVideo === "function") ytPlayer.stopVideo();
         els.ytBox.hidden = true;
